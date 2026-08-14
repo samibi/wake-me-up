@@ -1,5 +1,8 @@
 package com.samibi.stayawake.ui
 
+import android.app.NotificationManager
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -68,6 +71,28 @@ fun SettingsScreen(navController: NavHostController) {
                     colors = ChipDefaults.secondaryChipColors(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            // The alarm channel asks to bypass Do Not Disturb (sleep/bedtime mode),
+            // but the system only honors that once the user grants DND access here.
+            val notificationManager = context.getSystemService(NotificationManager::class.java)
+            if (notificationManager?.isNotificationPolicyAccessGranted == false) {
+                item {
+                    Chip(
+                        label = { Text("Allow alarm in sleep mode") },
+                        secondaryLabel = { Text("Grant Do Not Disturb access") },
+                        onClick = {
+                            try {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS),
+                                )
+                            } catch (_: Exception) {
+                                // Settings screen unavailable on this build; nothing to do.
+                            }
+                        },
+                        colors = ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

@@ -218,3 +218,58 @@ with `adb connect IP:PORT` first if needed) run:
 ```
 
 The `-r` flag replaces the existing install and keeps your saved settings.
+
+---
+
+## Galaxy Watch Ultra notes (v1.1)
+
+If you're installing on a Samsung Galaxy Watch Ultra (2025) or Watch
+Ultra2 (2026), the steps above work exactly the same. This section covers
+the extra checks worth doing on this watch model before you trust it for
+an overnight session.
+
+**Which watch do you have?** Check **Settings → About watch**. The 2025
+Watch Ultra runs Wear OS 6; the Watch Ultra2 runs Wear OS 7. The app
+behaves identically on both — nothing below differs between them.
+
+### Pre-flight checklist before a real sleep-watch session
+
+Samsung's power-saving and sleep features can silently interfere with
+monitoring or the alarm. Before you rely on this for an actual night's
+sleep, work through this list once:
+
+1. **Settings → Battery** — make sure **Watch only** mode is **off** (it
+   kills all apps, including StayAwake) and **Power saving** is off.
+2. **Settings → Apps → StayAwake → Battery** — set to **Unrestricted**.
+3. **Settings → Apps → Permission manager → Sensors → StayAwake** — set to
+   **Allow all the time**. This is what lets the watch keep reading your
+   heart rate in the background.
+4. **Settings → Sounds and vibration → Vibration** — set **Strength** to
+   **Strong** and **Length** to **Long**, and make sure the strap is worn
+   snug so you actually feel it.
+5. **In the StayAwake app: Settings → "Allow alarm in sleep mode"** — tap
+   this and grant Do Not Disturb access when asked. Without it, the
+   watch's Bedtime/sleep mode can silence the wake-up vibration exactly
+   when you need it most.
+6. **Avoid Theater mode** during a monitoring session — Samsung documents
+   Theater mode as muting even alarms.
+
+### First-session sanity test (5 minutes)
+
+Samsung's Bedtime and power-saving modes are the single most likely thing
+to silently break the alarm, so it's worth a quick test the first time:
+
+1. Start monitoring and confirm the **HR: xx bpm** number on the Home
+   screen updates within about 30 seconds.
+2. Turn on **Bedtime mode**, set sensitivity to **High**, then sit still
+   and let a test alarm trigger (see section f, "Test it," above).
+3. Confirm the alarm still vibrates and shows the red "WAKE UP!" screen
+   even with Bedtime mode on. If it does, your settings are correct and
+   the alarm will work overnight.
+
+### About Always On Display (AOD)
+
+AOD on or off makes **no difference** to monitoring — heart-rate
+collection is designed to keep running with the screen off. On the Watch
+Ultra / Ultra2, AOD is off by default, so you don't need to change
+anything here.
