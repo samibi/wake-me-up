@@ -121,3 +121,58 @@ The `battery` lines are logged once a minute with the current battery
 percentage (`"pct"`). To estimate drain rate, compare the `pct` value at the
 start and end of an hour-long stretch — the difference is roughly your
 battery drain per hour during monitoring.
+
+---
+
+## Working from a different network (e.g. at the office)
+
+You can install and pull logs from anywhere, as long as your computer and the
+watch are on the **same Wi-Fi**. Nothing about the app changes — but a few
+things about the network do.
+
+**1. Check the network actually allows it.** Many office and guest Wi-Fi
+networks use "client isolation", which blocks devices from talking to each
+other even though they're on the same network. Test before anything else:
+
+```
+ping <watch-ip>
+```
+
+(The watch's IP is on its Wireless debugging screen.) If there's no reply,
+wireless adb will not work on that network. Use a phone hotspot for both
+devices instead, or wait until you're home. On a company network, also check
+that this is allowed by your IT policy.
+
+**2. Make sure the watch is really on Wi-Fi.** Galaxy Watches often drop Wi-Fi
+while connected to the phone over Bluetooth. Check Settings → Connections →
+Wi-Fi on the watch.
+
+**3. Expect a new IP and a fresh pairing.** On a different network the watch
+gets a different IP address, so pair and connect again:
+
+```
+adb pair <ip>:<pairing-port>
+adb connect <ip>:<connect-port>
+```
+
+### If the computer doing the work isn't the one near the watch
+
+For example, the watch is next to your laptop, but the project lives on your
+home server that you reach over Tailscale/VPN. Run the adb server on the
+laptop and tunnel to it over SSH:
+
+```
+# on the remote machine, open a tunnel to the laptop:
+ssh -L 5037:localhost:5037 <user>@<laptop-hostname>
+
+# then, in another shell on the remote machine:
+export ADB_SERVER_SOCKET=tcp:localhost:5037
+adb devices        # lists the watch connected to the laptop
+```
+
+Every normal adb command then works from the remote machine.
+
+**Do not** use `adb -a nodaemon server` to share adb instead. That exposes adb
+on every network interface, and on a shared office network anyone on that
+network could install apps on your watch. The SSH tunnel above keeps it
+private.
