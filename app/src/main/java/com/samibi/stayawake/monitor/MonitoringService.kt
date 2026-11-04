@@ -119,7 +119,7 @@ class MonitoringService : LifecycleService() {
             )
             newDetector.start(System.currentTimeMillis())
             detector = newDetector
-            DiagLog.log("session_start", "reason" to reason.name, "sensitivity" to sensitivity.name)
+            DiagLog.log("session_start", "reason" to reason.name, "hrDropPct" to params.hrDropPercent, "hrLowSec" to params.hrLowSustainSec, "stillSec" to params.stillnessSec)
 
             registerAccelerometer()
             startExercise()
