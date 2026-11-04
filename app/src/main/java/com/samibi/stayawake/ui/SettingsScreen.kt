@@ -1,26 +1,31 @@
 package com.samibi.stayawake.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
-import androidx.wear.compose.material.Icon
+import androidx.wear.compose.material.CompactChip
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
-import androidx.wear.compose.material.ToggleChip
-import androidx.wear.compose.material.ToggleChipDefaults
 import com.samibi.stayawake.data.SettingsStore
+import com.samibi.stayawake.monitor.DetectorParams
 import com.samibi.stayawake.monitor.Sensitivity
 import kotlinx.coroutines.launch
 
@@ -28,37 +33,74 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(navController: NavHostController) {
     val context = LocalContext.current
     val store = remember(context) { SettingsStore.get(context) }
-    val current by store.sensitivity.collectAsStateWithLifecycle(initialValue = Sensitivity.MEDIUM)
+    val current by store.params.collectAsStateWithLifecycle(initialValue = DetectorParams.DEFAULT)
     val scope = rememberCoroutineScope()
     val listState = rememberScalingLazyListState()
 
+    fun save(p: DetectorParams) {
+        scope.launch { store.setParams(p) }
+    }
+
     Scaffold(timeText = { TimeText() }) {
         ScalingLazyColumn(modifier = Modifier.fillMaxWidth(), state = listState) {
-            item {
-                Text(text = "Sensitivity", style = MaterialTheme.typography.title3)
+            item { Text(text = "Presets", style = MaterialTheme.typography.title3) }
+            items(Sensitivity.values().toList()) { s ->
+                val preset = DetectorParams.forSensitivity(s)
+                Chip(
+                    label = { Text(s.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    secondaryLabel = {
+                        Text("-${preset.hrDropPercent}% / ${preset.hrLowSustainSec}s / ${preset.stillnessSec}s")
+                    },
+                    onClick = { save(preset) },
+                    colors = if (current == preset) {
+                        ChipDefaults.primaryChipColors()
+                    } else {
+                        ChipDefaults.secondaryChipColors()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
+            item { Text(text = "Custom", style = MaterialTheme.typography.title3) }
             item {
-                SensitivityChip(
-                    label = "Low",
-                    secondaryLabel = "Fewer false alarms",
-                    checked = current == Sensitivity.LOW,
-                    onClick = { scope.launch { store.setSensitivity(Sensitivity.LOW) } },
+                ParamRow(
+                    title = "HR drop below baseline",
+                    value = "${current.hrDropPercent}%",
+                    onMinus = {
+                        save(current.copy(hrDropPercent = (current.hrDropPercent - 1).coerceAtLeast(DetectorParams.DROP_MIN)))
+                    },
+                    onPlus = {
+                        save(current.copy(hrDropPercent = (current.hrDropPercent + 1).coerceAtMost(DetectorParams.DROP_MAX)))
+                    },
                 )
             }
             item {
-                SensitivityChip(
-                    label = "Medium",
-                    secondaryLabel = "Balanced",
-                    checked = current == Sensitivity.MEDIUM,
-                    onClick = { scope.launch { store.setSensitivity(Sensitivity.MEDIUM) } },
+                ParamRow(
+                    title = "HR must stay low for",
+                    value = "${current.hrLowSustainSec}s",
+                    onMinus = {
+                        save(current.copy(hrLowSustainSec = (current.hrLowSustainSec - 5).coerceAtLeast(DetectorParams.SUSTAIN_MIN)))
+                    },
+                    onPlus = {
+                        save(current.copy(hrLowSustainSec = (current.hrLowSustainSec + 5).coerceAtMost(DetectorParams.SUSTAIN_MAX)))
+                    },
                 )
             }
             item {
-                SensitivityChip(
-                    label = "High",
-                    secondaryLabel = "Earliest warning",
-                    checked = current == Sensitivity.HIGH,
-                    onClick = { scope.launch { store.setSensitivity(Sensitivity.HIGH) } },
+                ParamRow(
+                    title = "Wrist still for",
+                    value = "${current.stillnessSec}s",
+                    onMinus = {
+                        save(current.copy(stillnessSec = (current.stillnessSec - 5).coerceAtLeast(DetectorParams.STILL_MIN)))
+                    },
+                    onPlus = {
+                        save(current.copy(stillnessSec = (current.stillnessSec + 5).coerceAtMost(DetectorParams.STILL_MAX)))
+                    },
+                )
+            }
+            item {
+                Text(
+                    text = "Applies on next session start",
+                    style = MaterialTheme.typography.caption3,
                 )
             }
             item {
@@ -74,23 +116,24 @@ fun SettingsScreen(navController: NavHostController) {
 }
 
 @Composable
-private fun SensitivityChip(
-    label: String,
-    secondaryLabel: String,
-    checked: Boolean,
-    onClick: () -> Unit,
+private fun ParamRow(
+    title: String,
+    value: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
 ) {
-    ToggleChip(
-        checked = checked,
-        onCheckedChange = { onClick() },
-        label = { Text(label) },
-        secondaryLabel = { Text(secondaryLabel) },
-        toggleControl = {
-            Icon(
-                imageVector = ToggleChipDefaults.radioIcon(checked),
-                contentDescription = null,
-            )
-        },
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth(),
-    )
+    ) {
+        Text(text = title, style = MaterialTheme.typography.caption2)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CompactChip(label = { Text("−") }, onClick = onMinus)
+            Text(text = value, style = MaterialTheme.typography.title3)
+            CompactChip(label = { Text("+") }, onClick = onPlus)
+        }
+    }
 }
