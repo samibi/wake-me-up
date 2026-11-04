@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.Text
+import com.samibi.stayawake.ui.AlarmColors
+import com.samibi.stayawake.monitor.AlarmCause
 import com.samibi.stayawake.monitor.MonitorState
 import com.samibi.stayawake.monitor.MonitoringService
 
@@ -57,7 +59,9 @@ private fun AlarmScreen(onDismiss: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFB71C1C)),
+            .background(
+                if (snapshot.alarmCause == AlarmCause.SYSTEM_ASLEEP) Color(0xFF4A148C) else Color(0xFFB71C1C),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -70,7 +74,31 @@ private fun AlarmScreen(onDismiss: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 fontSize = 24.sp,
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            when (snapshot.alarmCause) {
+                AlarmCause.HEART_RATE_AND_STILLNESS -> {
+                    Text(
+                        text = "HR ${snapshot.alarmHr?.toInt() ?: "--"} (base ${snapshot.alarmBaselineHr?.toInt() ?: "--"}) low ${snapshot.alarmHrLowSec}s",
+                        color = AlarmColors.HeartRate,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                    )
+                    Text(
+                        text = "Still ${snapshot.alarmStillSec}s",
+                        color = AlarmColors.Stillness,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                    )
+                }
+                AlarmCause.SYSTEM_ASLEEP -> Text(
+                    text = "Watch sleep detection",
+                    color = AlarmColors.System,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                )
+                null -> {}
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = onDismiss,
                 modifier = Modifier
