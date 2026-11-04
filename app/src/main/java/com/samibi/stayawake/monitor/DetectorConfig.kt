@@ -25,6 +25,12 @@ data class DetectorConfig(
                 hrLowSustainMs = 60_000L,
                 stillnessMs = 90_000L,
             )
+            // Fastest: catches drowsiness (nodding off) within ~20s of stillness.
+            Sensitivity.LESSON -> DetectorConfig(
+                hrDropFraction = 0.04,
+                hrLowSustainMs = 15_000L,
+                stillnessMs = 20_000L,
+            )
         }
     }
 }

@@ -15,11 +15,11 @@ data class DetectorParams(
     )
 
     companion object {
-        const val DROP_MIN = 3
+        const val DROP_MIN = 2
         const val DROP_MAX = 25
-        const val SUSTAIN_MIN = 10
+        const val SUSTAIN_MIN = 5
         const val SUSTAIN_MAX = 300
-        const val STILL_MIN = 10
+        const val STILL_MIN = 5
         const val STILL_MAX = 600
 
         fun forSensitivity(s: Sensitivity): DetectorParams {

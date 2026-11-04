@@ -6,3 +6,4 @@
 - Home screen: live values color-coded (orange = HR low, blue = still) with progress vs. thresholds.
 - Alarm screen: shows cause in color (orange HR, blue stillness, purple watch sleep detection); purple background for system trigger.
 - Not built: Gradle can't resolve Android plugin in this sandbox. Verify with `./gradlew :app:testDebugUnitTest`.
+- Added LESSON preset (4% / 15s / 20s) for fastest drowsiness detection; lowered minimums to 2% / 5s / 5s.
