@@ -96,6 +96,12 @@ private fun AlarmScreen(onDismiss: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                 )
+                AlarmCause.STILLNESS_ONLY -> Text(
+                    text = "Still ${snapshot.alarmStillSec}s",
+                    color = AlarmColors.Stillness,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                )
                 null -> {}
             }
             Spacer(modifier = Modifier.height(8.dp))

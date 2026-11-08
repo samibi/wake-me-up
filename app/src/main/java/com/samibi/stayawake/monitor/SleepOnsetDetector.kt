@@ -3,7 +3,7 @@ package com.samibi.stayawake.monitor
 enum class DetectorEvent { NONE, ALARM }
 
 /** Which measurement(s) triggered the alarm. */
-enum class AlarmCause { HEART_RATE_AND_STILLNESS, SYSTEM_ASLEEP }
+enum class AlarmCause { HEART_RATE_AND_STILLNESS, SYSTEM_ASLEEP, STILLNESS_ONLY }
 
 data class AlarmInfo(val cause: AlarmCause, val snapshot: DetectorSnapshot)
 

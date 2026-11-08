@@ -23,41 +23,25 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import androidx.health.services.client.ExerciseUpdateCallback
-import androidx.health.services.client.HealthServices
-import androidx.health.services.client.PassiveListenerCallback
-import androidx.health.services.client.data.Availability
-import androidx.health.services.client.data.BatchingMode
-import androidx.health.services.client.data.DataType
-import androidx.health.services.client.data.ExerciseConfig
-import androidx.health.services.client.data.ExerciseLapSummary
-import androidx.health.services.client.data.ExerciseType
-import androidx.health.services.client.data.ExerciseUpdate
-import androidx.health.services.client.data.PassiveListenerConfig
-import androidx.health.services.client.data.UserActivityInfo
-import androidx.health.services.client.data.UserActivityState
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import androidx.wear.ongoing.OngoingActivity
 import com.samibi.stayawake.R
 import com.samibi.stayawake.StayAwakeApp
 import com.samibi.stayawake.alarm.AlarmActivity
-import com.samibi.stayawake.data.SettingsStore
 import com.samibi.stayawake.diag.DiagLog
 import com.samibi.stayawake.ui.MainActivity
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 
 class MonitoringService : LifecycleService() {
 
-    private var detector: SleepOnsetDetector? = null
+    private var detector: MotionOnlyDetector? = null
     private var sensorManager: SensorManager? = null
     private var accelListener: SensorEventListener? = null
     private var vibrator: Vibrator? = null
-    private var exerciseCallback: ExerciseUpdateCallback? = null
     private var screenReceiver: BroadcastReceiver? = null
 
     private val motionSamples = mutableListOf<Double>()
@@ -110,20 +94,17 @@ class MonitoringService : LifecycleService() {
         MonitorState.flow.value = MonitorSnapshot(running = true, startReason = reason)
 
         lifecycleScope.launch {
-            val params = SettingsStore.get(this@MonitoringService).currentParams()
-            val newDetector = SleepOnsetDetector(params.toConfig())
-            MonitorState.flow.value = MonitorState.flow.value.copy(
-                hrDropPercent = params.hrDropPercent,
-                hrLowSustainSec = params.hrLowSustainSec.toLong(),
-                stillnessSec = params.stillnessSec.toLong(),
-            )
+            val newDetector = MotionOnlyDetector(MotionConfig())
             newDetector.start(System.currentTimeMillis())
             detector = newDetector
-            DiagLog.log("session_start", "reason" to reason.name, "sensitivity" to sensitivity.name)
+            DiagLog.log(
+                "session_start",
+                "reason" to reason.name,
+                "stillSec" to newDetector.config.stillnessMs / 1000,
+                "confirmSec" to newDetector.config.confirmMs / 1000,
+            )
 
             registerAccelerometer()
-            startExercise()
-            startPassiveBackstop()
         }
 
         lifecycleScope.launch {
@@ -188,143 +169,59 @@ class MonitoringService : LifecycleService() {
                 motionSamples.add(sqrt((x * x + y * y + z * z).toDouble()))
 
                 val elapsed = SystemClock.elapsedRealtime() - motionEpochStartElapsedMs
-                if (elapsed >= 5000L) {
+                if (elapsed >= WINDOW_MS) {
                     val mad = meanAbsoluteDeviation(motionSamples)
-                    DiagLog.log("motion", "mad" to mad)
-                    val d = detector
-                    if (d != null) {
-                        d.onMotion(System.currentTimeMillis(), mad)
-                        val snap = d.snapshot(System.currentTimeMillis())
-                        MonitorState.flow.value = MonitorState.flow.value.copy(
-                            stillForSec = snap.stillForMs / 1000L,
-                        )
-                    }
                     motionSamples.clear()
                     motionEpochStartElapsedMs = SystemClock.elapsedRealtime()
+                    onWindow(mad)
                 }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
         accelListener = listener
-        manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI, 1_000_000)
+        // ~5 Hz, delivered in batches so the CPU wakes about once per window.
+        manager.registerListener(listener, sensor, SAMPLE_PERIOD_US, MAX_REPORT_LATENCY_US)
+    }
+
+    private var windowCount = 0
+
+    private fun onWindow(mad: Double) {
+        val d = detector ?: return
+        val now = System.currentTimeMillis()
+        d.onMotion(now, mad)
+        val event = d.tick(now)
+        if (windowCount++ % 6 == 0 || event != MotionEvent.NONE) {
+            DiagLog.log("motion", "mad" to mad, "stillSec" to d.stillForMs(now) / 1000, "event" to event.name)
+        }
+        MonitorState.flow.value = MonitorState.flow.value.copy(stillForSec = d.stillForMs(now) / 1000L)
+        when (event) {
+            MotionEvent.WARN -> warnVibrate()
+            MotionEvent.ALARM -> {
+                MonitorState.flow.value = MonitorState.flow.value.copy(
+                    alarmCause = AlarmCause.STILLNESS_ONLY,
+                    alarmStillSec = (d.config.stillnessMs + d.config.confirmMs) / 1000L,
+                )
+                triggerAlarm()
+            }
+            MotionEvent.NONE -> {}
+        }
+    }
+
+    private fun warnVibrate() {
+        val v = if (Build.VERSION.SDK_INT >= 31) {
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 200, 150, 200), intArrayOf(0, 120, 0, 120), -1))
     }
 
     private fun meanAbsoluteDeviation(values: List<Double>): Double {
         if (values.isEmpty()) return 0.0
         val mean = values.sum() / values.size
         return values.sumOf { abs(it - mean) } / values.size
-    }
-
-    private suspend fun startExercise() {
-        val exerciseClient = HealthServices.getClient(this).exerciseClient
-        try {
-            val callback = object : ExerciseUpdateCallback {
-                override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
-                    val samples = update.latestMetrics.getData(DataType.HEART_RATE_BPM)
-                    for (sample in samples) {
-                        handleHeartRate(sample.value)
-                    }
-                }
-
-                override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) {}
-
-                override fun onRegistered() {}
-
-                override fun onRegistrationFailed(throwable: Throwable) {
-                    DiagLog.log("error", "where" to "exerciseCallback", "msg" to throwable.message)
-                    MonitorState.flow.value = MonitorState.flow.value.copy(error = throwable.message)
-                }
-
-                override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {}
-            }
-            exerciseCallback = callback
-            exerciseClient.setUpdateCallback(callback)
-
-            fun buildConfig(withFastBatching: Boolean): ExerciseConfig {
-                val builder = ExerciseConfig.builder(ExerciseType.WORKOUT)
-                    .setDataTypes(setOf(DataType.HEART_RATE_BPM))
-                    .setIsAutoPauseAndResumeEnabled(false)
-                    .setIsGpsEnabled(false)
-                if (withFastBatching) {
-                    builder.setBatchingModeOverrides(setOf(BatchingMode.HEART_RATE_5_SECONDS))
-                }
-                return builder.build()
-            }
-
-            // health-services-client 1.0.0 has no capability query for batching-mode
-            // overrides, so probe by attempting the fast-batching config first.
-            val fastBatching = try {
-                exerciseClient.startExerciseAsync(buildConfig(withFastBatching = true)).await()
-                true
-            } catch (e: Exception) {
-                exerciseClient.startExerciseAsync(buildConfig(withFastBatching = false)).await()
-                false
-            }
-            DiagLog.log("exercise", "fastBatching" to fastBatching)
-            MonitorState.flow.value = MonitorState.flow.value.copy(fastBatchingSupported = fastBatching)
-        } catch (e: Exception) {
-            DiagLog.log("error", "where" to "startExercise", "msg" to e.message)
-            MonitorState.flow.value = MonitorState.flow.value.copy(error = e.message)
-        }
-    }
-
-    private fun startPassiveBackstop() {
-        try {
-            val passiveClient = HealthServices.getClient(this).passiveMonitoringClient
-            val passiveConfig = PassiveListenerConfig.builder()
-                .setShouldUserActivityInfoBeRequested(true)
-                .build()
-            passiveClient.setPassiveListenerCallback(
-                passiveConfig,
-                object : PassiveListenerCallback {
-                    override fun onUserActivityInfoReceived(info: UserActivityInfo) {
-                        DiagLog.log("passive", "state" to info.userActivityState.toString())
-                        if (info.userActivityState == UserActivityState.USER_ACTIVITY_ASLEEP) {
-                            val event = detector?.onUserActivityAsleep(System.currentTimeMillis()) ?: DetectorEvent.NONE
-                            handleDetectorEvent(event)
-                        }
-                    }
-                },
-            )
-        } catch (e: Exception) {
-            // ACTIVITY_RECOGNITION permission may be missing; non-fatal.
-        }
-    }
-
-    private fun handleHeartRate(bpm: Double) {
-        val d = detector ?: return
-        val now = System.currentTimeMillis()
-        val event = d.onHeartRate(now, bpm)
-        val snap = d.snapshot(now)
-        DiagLog.log(
-            "hr",
-            "bpm" to bpm,
-            "base" to snap.baselineHr,
-            "stillSec" to snap.stillForMs / 1000,
-            "lowSec" to snap.hrLowForMs / 1000,
-        )
-        MonitorState.flow.value = MonitorState.flow.value.copy(
-            currentHr = snap.currentHr,
-            baselineHr = snap.baselineHr,
-            hrLowForSec = snap.hrLowForMs / 1000L,
-            stillForSec = snap.stillForMs / 1000L,
-        )
-        handleDetectorEvent(event)
-    }
-
-    private fun handleDetectorEvent(event: DetectorEvent) {
-        if (event == DetectorEvent.ALARM) {
-            val info = detector?.lastAlarm
-            MonitorState.flow.value = MonitorState.flow.value.copy(
-                alarmCause = info?.cause,
-                alarmHr = info?.snapshot?.currentHr,
-                alarmBaselineHr = info?.snapshot?.baselineHr,
-                alarmHrLowSec = (info?.snapshot?.hrLowForMs ?: 0L) / 1000L,
-                alarmStillSec = (info?.snapshot?.stillForMs ?: 0L) / 1000L,
-            )
-            triggerAlarm()
-        }
     }
 
     private fun triggerAlarm() {
@@ -364,11 +261,7 @@ class MonitoringService : LifecycleService() {
             .setSmallIcon(R.drawable.ic_notif)
             .setContentTitle("Wake up!")
             .setContentText(
-                if (MonitorState.flow.value.alarmCause == AlarmCause.SYSTEM_ASLEEP) {
-                    "Watch detected sleep"
-                } else {
-                    "Low heart rate + no movement"
-                },
+                "No movement - are you asleep?",
             )
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -404,26 +297,6 @@ class MonitoringService : LifecycleService() {
 
     private fun stopSession() {
         lifecycleScope.launch {
-            val client = HealthServices.getClient(this@MonitoringService)
-            try {
-                client.exerciseClient.endExerciseAsync().await()
-            } catch (e: Exception) {
-                // ignore
-            }
-            val callback = exerciseCallback
-            if (callback != null) {
-                try {
-                    client.exerciseClient.clearUpdateCallbackAsync(callback).await()
-                } catch (e: Exception) {
-                    // ignore
-                }
-            }
-            try {
-                client.passiveMonitoringClient.clearPassiveListenerCallbackAsync().await()
-            } catch (e: Exception) {
-                // ignore
-            }
-
             unregisterAccelerometer()
             unregisterScreenReceiver()
             vibrator?.cancel()
@@ -463,6 +336,9 @@ class MonitoringService : LifecycleService() {
     companion object {
         private const val NOTIF_ID = 1001
         private const val ALARM_NOTIF_ID = 1002
+        private const val WINDOW_MS = 5_000L
+        private const val SAMPLE_PERIOD_US = 200_000
+        private const val MAX_REPORT_LATENCY_US = 5_000_000
 
         private const val ACTION_START_MANUAL = "com.samibi.stayawake.action.START_MANUAL"
         private const val ACTION_START_SCHEDULED = "com.samibi.stayawake.action.START_SCHEDULED"
