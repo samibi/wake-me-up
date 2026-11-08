@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -97,10 +98,25 @@ fun HomeScreen(navController: NavHostController) {
             if (snapshot.running) {
                 item {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "HR: ${snapshot.currentHr?.toInt() ?: "--"} bpm")
+                        val hrLow = snapshot.hrLowForSec > 0
+                        val stillReached = snapshot.stillForSec >= snapshot.stillnessSec
+                        Text(
+                            text = "HR: ${snapshot.currentHr?.toInt() ?: "--"} bpm",
+                            color = if (hrLow) AlarmColors.HeartRate else Color.White,
+                        )
                         Text(text = "Baseline: ${snapshot.baselineHr?.toInt() ?: "--"} bpm")
-                        Text(text = "Still for: ${snapshot.stillForSec}s")
-                        Text(text = "Low HR for: ${snapshot.hrLowForSec}s")
+                        Text(
+                            text = "Low HR: ${snapshot.hrLowForSec}/${snapshot.hrLowSustainSec}s",
+                            color = if (snapshot.hrLowForSec >= snapshot.hrLowSustainSec) {
+                                AlarmColors.HeartRate
+                            } else {
+                                Color.White
+                            },
+                        )
+                        Text(
+                            text = "Still: ${snapshot.stillForSec}/${snapshot.stillnessSec}s",
+                            color = if (stillReached) AlarmColors.Stillness else Color.White,
+                        )
                     }
                 }
                 if (snapshot.fastBatchingSupported == false) {

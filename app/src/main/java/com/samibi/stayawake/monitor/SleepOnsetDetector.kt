@@ -2,6 +2,11 @@ package com.samibi.stayawake.monitor
 
 enum class DetectorEvent { NONE, ALARM }
 
+/** Which measurement(s) triggered the alarm. */
+enum class AlarmCause { HEART_RATE_AND_STILLNESS, SYSTEM_ASLEEP }
+
+data class AlarmInfo(val cause: AlarmCause, val snapshot: DetectorSnapshot)
+
 data class DetectorSnapshot(
     val currentHr: Double? = null,
     val baselineHr: Double? = null,
@@ -16,6 +21,8 @@ class SleepOnsetDetector(val config: DetectorConfig) {
     private var hrLowSinceMs: Long? = null
     private var lastAlarmAtMs: Long? = null
     private var lastHr: Double? = null
+    var lastAlarm: AlarmInfo? = null
+        private set
     private val baseline = ArrayDeque<Pair<Long, Double>>()
 
     fun start(nowMs: Long) {
@@ -23,6 +30,7 @@ class SleepOnsetDetector(val config: DetectorConfig) {
         lastMovementMs = nowMs
         hrLowSinceMs = null
         lastAlarmAtMs = null
+        lastAlarm = null
         lastHr = null
         baseline.clear()
     }
@@ -68,7 +76,7 @@ class SleepOnsetDetector(val config: DetectorConfig) {
             (nowMs - lastAlarmAtMs!!) < config.postAlarmGraceMs
 
         return if (still && hrLowSustained && !grace) {
-            fireAlarm(nowMs)
+            fireAlarm(nowMs, AlarmCause.HEART_RATE_AND_STILLNESS)
             DetectorEvent.ALARM
         } else {
             DetectorEvent.NONE
@@ -80,7 +88,7 @@ class SleepOnsetDetector(val config: DetectorConfig) {
             (nowMs - lastAlarmAtMs!!) < config.postAlarmGraceMs
         val warmedUp = (nowMs - startedAtMs) >= 3 * 60_000L
         return if (warmedUp && !grace) {
-            fireAlarm(nowMs)
+            fireAlarm(nowMs, AlarmCause.SYSTEM_ASLEEP)
             DetectorEvent.ALARM
         } else {
             DetectorEvent.NONE
@@ -100,7 +108,8 @@ class SleepOnsetDetector(val config: DetectorConfig) {
         )
     }
 
-    private fun fireAlarm(nowMs: Long) {
+    private fun fireAlarm(nowMs: Long, cause: AlarmCause) {
+        lastAlarm = AlarmInfo(cause, snapshot(nowMs))
         lastAlarmAtMs = nowMs
         hrLowSinceMs = null
         lastMovementMs = nowMs

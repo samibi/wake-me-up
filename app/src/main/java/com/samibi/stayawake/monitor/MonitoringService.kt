@@ -110,8 +110,13 @@ class MonitoringService : LifecycleService() {
         MonitorState.flow.value = MonitorSnapshot(running = true, startReason = reason)
 
         lifecycleScope.launch {
-            val sensitivity = SettingsStore.get(this@MonitoringService).currentSensitivity()
-            val newDetector = SleepOnsetDetector(DetectorConfig.forSensitivity(sensitivity))
+            val params = SettingsStore.get(this@MonitoringService).currentParams()
+            val newDetector = SleepOnsetDetector(params.toConfig())
+            MonitorState.flow.value = MonitorState.flow.value.copy(
+                hrDropPercent = params.hrDropPercent,
+                hrLowSustainSec = params.hrLowSustainSec.toLong(),
+                stillnessSec = params.stillnessSec.toLong(),
+            )
             newDetector.start(System.currentTimeMillis())
             detector = newDetector
             DiagLog.log("session_start", "reason" to reason.name, "sensitivity" to sensitivity.name)
@@ -310,6 +315,14 @@ class MonitoringService : LifecycleService() {
 
     private fun handleDetectorEvent(event: DetectorEvent) {
         if (event == DetectorEvent.ALARM) {
+            val info = detector?.lastAlarm
+            MonitorState.flow.value = MonitorState.flow.value.copy(
+                alarmCause = info?.cause,
+                alarmHr = info?.snapshot?.currentHr,
+                alarmBaselineHr = info?.snapshot?.baselineHr,
+                alarmHrLowSec = (info?.snapshot?.hrLowForMs ?: 0L) / 1000L,
+                alarmStillSec = (info?.snapshot?.stillForMs ?: 0L) / 1000L,
+            )
             triggerAlarm()
         }
     }
@@ -350,7 +363,13 @@ class MonitoringService : LifecycleService() {
         val notification = NotificationCompat.Builder(this, StayAwakeApp.CHANNEL_ALARM)
             .setSmallIcon(R.drawable.ic_notif)
             .setContentTitle("Wake up!")
-            .setContentText("You were falling asleep")
+            .setContentText(
+                if (MonitorState.flow.value.alarmCause == AlarmCause.SYSTEM_ASLEEP) {
+                    "Watch detected sleep"
+                } else {
+                    "Low heart rate + no movement"
+                },
+            )
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setFullScreenIntent(fullScreenPendingIntent, true)
