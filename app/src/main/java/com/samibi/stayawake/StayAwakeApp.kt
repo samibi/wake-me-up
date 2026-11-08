@@ -30,6 +30,10 @@ class StayAwakeApp : Application() {
         ).apply {
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 500, 250, 500)
+            // Ask to bypass Do Not Disturb / bedtime mode so the wake-up alarm
+            // still fires while the watch is in sleep mode. Honored by the system
+            // for alarm-style channels; harmless where not honored.
+            setBypassDnd(true)
         }
 
         manager.createNotificationChannel(monitoringChannel)

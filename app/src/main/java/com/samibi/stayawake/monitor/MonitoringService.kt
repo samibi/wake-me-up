@@ -1,15 +1,19 @@
 package com.samibi.stayawake.monitor
 
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.AudioAttributes
+import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationAttributes
 import android.os.VibrationEffect
@@ -18,6 +22,7 @@ import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.PassiveListenerCallback
@@ -38,9 +43,11 @@ import com.samibi.stayawake.R
 import com.samibi.stayawake.StayAwakeApp
 import com.samibi.stayawake.alarm.AlarmActivity
 import com.samibi.stayawake.data.SettingsStore
+import com.samibi.stayawake.diag.DiagLog
 import com.samibi.stayawake.ui.MainActivity
 import kotlin.math.abs
 import kotlin.math.sqrt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 
@@ -51,6 +58,7 @@ class MonitoringService : LifecycleService() {
     private var accelListener: SensorEventListener? = null
     private var vibrator: Vibrator? = null
     private var exerciseCallback: ExerciseUpdateCallback? = null
+    private var screenReceiver: BroadcastReceiver? = null
 
     private val motionSamples = mutableListOf<Double>()
     private var motionEpochStartElapsedMs: Long = 0L
@@ -74,6 +82,9 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun startSession(reason: StartReason) {
+        DiagLog.start(this)
+        registerScreenReceiver()
+
         val contentPendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -103,11 +114,57 @@ class MonitoringService : LifecycleService() {
             val newDetector = SleepOnsetDetector(DetectorConfig.forSensitivity(sensitivity))
             newDetector.start(System.currentTimeMillis())
             detector = newDetector
+            DiagLog.log("session_start", "reason" to reason.name, "sensitivity" to sensitivity.name)
 
             registerAccelerometer()
             startExercise()
             startPassiveBackstop()
         }
+
+        lifecycleScope.launch {
+            while (MonitorState.flow.value.running) {
+                try {
+                    val battery = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                    val level = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                    DiagLog.log("battery", "pct" to level)
+                } catch (e: Exception) {
+                    // ignore
+                }
+                delay(60_000)
+            }
+        }
+    }
+
+    private fun registerScreenReceiver() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_ON -> DiagLog.log("screen", "on" to true)
+                    Intent.ACTION_SCREEN_OFF -> DiagLog.log("screen", "on" to false)
+                }
+            }
+        }
+        screenReceiver = receiver
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+
+        val interactive = (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
+        DiagLog.log("screen", "on" to interactive)
+    }
+
+    private fun unregisterScreenReceiver() {
+        val receiver = screenReceiver
+        if (receiver != null) {
+            try {
+                unregisterReceiver(receiver)
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+        screenReceiver = null
     }
 
     private fun registerAccelerometer() {
@@ -128,6 +185,7 @@ class MonitoringService : LifecycleService() {
                 val elapsed = SystemClock.elapsedRealtime() - motionEpochStartElapsedMs
                 if (elapsed >= 5000L) {
                     val mad = meanAbsoluteDeviation(motionSamples)
+                    DiagLog.log("motion", "mad" to mad)
                     val d = detector
                     if (d != null) {
                         d.onMotion(System.currentTimeMillis(), mad)
@@ -169,6 +227,7 @@ class MonitoringService : LifecycleService() {
                 override fun onRegistered() {}
 
                 override fun onRegistrationFailed(throwable: Throwable) {
+                    DiagLog.log("error", "where" to "exerciseCallback", "msg" to throwable.message)
                     MonitorState.flow.value = MonitorState.flow.value.copy(error = throwable.message)
                 }
 
@@ -197,8 +256,10 @@ class MonitoringService : LifecycleService() {
                 exerciseClient.startExerciseAsync(buildConfig(withFastBatching = false)).await()
                 false
             }
+            DiagLog.log("exercise", "fastBatching" to fastBatching)
             MonitorState.flow.value = MonitorState.flow.value.copy(fastBatchingSupported = fastBatching)
         } catch (e: Exception) {
+            DiagLog.log("error", "where" to "startExercise", "msg" to e.message)
             MonitorState.flow.value = MonitorState.flow.value.copy(error = e.message)
         }
     }
@@ -213,6 +274,7 @@ class MonitoringService : LifecycleService() {
                 passiveConfig,
                 object : PassiveListenerCallback {
                     override fun onUserActivityInfoReceived(info: UserActivityInfo) {
+                        DiagLog.log("passive", "state" to info.userActivityState.toString())
                         if (info.userActivityState == UserActivityState.USER_ACTIVITY_ASLEEP) {
                             val event = detector?.onUserActivityAsleep(System.currentTimeMillis()) ?: DetectorEvent.NONE
                             handleDetectorEvent(event)
@@ -230,6 +292,13 @@ class MonitoringService : LifecycleService() {
         val now = System.currentTimeMillis()
         val event = d.onHeartRate(now, bpm)
         val snap = d.snapshot(now)
+        DiagLog.log(
+            "hr",
+            "bpm" to bpm,
+            "base" to snap.baselineHr,
+            "stillSec" to snap.stillForMs / 1000,
+            "lowSec" to snap.hrLowForMs / 1000,
+        )
         MonitorState.flow.value = MonitorState.flow.value.copy(
             currentHr = snap.currentHr,
             baselineHr = snap.baselineHr,
@@ -246,6 +315,7 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun triggerAlarm() {
+        DiagLog.log("alarm_fired")
         MonitorState.flow.value = MonitorState.flow.value.copy(alarmActive = true)
 
         val v = if (Build.VERSION.SDK_INT >= 31) {
@@ -303,6 +373,7 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun dismissAlarm() {
+        DiagLog.log("alarm_dismissed")
         vibrator?.cancel()
         try {
             NotificationManagerCompat.from(this).cancel(ALARM_NOTIF_ID)
@@ -335,6 +406,7 @@ class MonitoringService : LifecycleService() {
             }
 
             unregisterAccelerometer()
+            unregisterScreenReceiver()
             vibrator?.cancel()
             try {
                 NotificationManagerCompat.from(this@MonitoringService).cancel(ALARM_NOTIF_ID)
@@ -342,10 +414,12 @@ class MonitoringService : LifecycleService() {
                 // ignore
             }
 
+            DiagLog.log("session_stop")
             MonitorState.flow.value = MonitorSnapshot()
 
             ServiceCompat.stopForeground(this@MonitoringService, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
+            DiagLog.stop()
         }
     }
 
@@ -361,7 +435,9 @@ class MonitoringService : LifecycleService() {
 
     override fun onDestroy() {
         unregisterAccelerometer()
+        unregisterScreenReceiver()
         vibrator?.cancel()
+        DiagLog.stop()
         super.onDestroy()
     }
 
