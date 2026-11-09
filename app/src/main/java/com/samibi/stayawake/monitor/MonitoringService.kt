@@ -29,6 +29,7 @@ import androidx.wear.ongoing.OngoingActivity
 import com.samibi.stayawake.R
 import com.samibi.stayawake.StayAwakeApp
 import com.samibi.stayawake.alarm.AlarmActivity
+import com.samibi.stayawake.data.SettingsStore
 import com.samibi.stayawake.diag.DiagLog
 import com.samibi.stayawake.ui.MainActivity
 import kotlin.math.abs
@@ -39,6 +40,7 @@ import kotlinx.coroutines.launch
 class MonitoringService : LifecycleService() {
 
     private var detector: MotionOnlyDetector? = null
+    private var motionSettings: MotionSettings = MotionSettings.DEFAULT
     private var sensorManager: SensorManager? = null
     private var accelListener: SensorEventListener? = null
     private var vibrator: Vibrator? = null
@@ -94,14 +96,22 @@ class MonitoringService : LifecycleService() {
         MonitorState.flow.value = MonitorSnapshot(running = true, startReason = reason)
 
         lifecycleScope.launch {
-            val newDetector = MotionOnlyDetector(MotionConfig())
+            val settings = SettingsStore.get(this@MonitoringService).currentMotion()
+            // Stopped while the settings were loading: do not start sensing.
+            if (!MonitorState.flow.value.running) return@launch
+            motionSettings = settings
+            val newDetector = MotionOnlyDetector(settings.toConfig())
             newDetector.start(System.currentTimeMillis())
             detector = newDetector
+            MonitorState.flow.value = MonitorState.flow.value.copy(stillnessSec = settings.stillnessSec.toLong())
             DiagLog.log(
                 "session_start",
                 "reason" to reason.name,
-                "stillSec" to newDetector.config.stillnessMs / 1000,
-                "confirmSec" to newDetector.config.confirmMs / 1000,
+                "stillSec" to settings.stillnessSec,
+                "confirmSec" to settings.confirmSec,
+                "thresholdCenti" to settings.thresholdCenti,
+                "windowSec" to settings.windowSec,
+                "sampleHz" to settings.sampleHz,
             )
 
             registerAccelerometer()
@@ -169,7 +179,7 @@ class MonitoringService : LifecycleService() {
                 motionSamples.add(sqrt((x * x + y * y + z * z).toDouble()))
 
                 val elapsed = SystemClock.elapsedRealtime() - motionEpochStartElapsedMs
-                if (elapsed >= WINDOW_MS) {
+                if (elapsed >= motionSettings.windowMs) {
                     val mad = meanAbsoluteDeviation(motionSamples)
                     motionSamples.clear()
                     motionEpochStartElapsedMs = SystemClock.elapsedRealtime()
@@ -180,8 +190,13 @@ class MonitoringService : LifecycleService() {
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
         accelListener = listener
-        // ~5 Hz, delivered in batches so the CPU wakes about once per window.
-        manager.registerListener(listener, sensor, SAMPLE_PERIOD_US, MAX_REPORT_LATENCY_US)
+        // Delivered in batches so the CPU wakes about once per window.
+        manager.registerListener(
+            listener,
+            sensor,
+            motionSettings.samplePeriodUs,
+            motionSettings.maxReportLatencyUs,
+        )
     }
 
     private var windowCount = 0
@@ -336,9 +351,6 @@ class MonitoringService : LifecycleService() {
     companion object {
         private const val NOTIF_ID = 1001
         private const val ALARM_NOTIF_ID = 1002
-        private const val WINDOW_MS = 5_000L
-        private const val SAMPLE_PERIOD_US = 200_000
-        private const val MAX_REPORT_LATENCY_US = 5_000_000
 
         private const val ACTION_START_MANUAL = "com.samibi.stayawake.action.START_MANUAL"
         private const val ACTION_START_SCHEDULED = "com.samibi.stayawake.action.START_SCHEDULED"

@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
                 SwipeDismissableNavHost(navController = navController, startDestination = "home") {
                     composable("home") { HomeScreen(navController) }
                     composable("settings") { SettingsScreen(navController) }
+                    composable("advanced") { AdvancedSettingsScreen(navController) }
                     composable("schedule") { ScheduleScreen(navController) }
                 }
             }

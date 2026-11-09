@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.samibi.stayawake.monitor.DetectorParams
+import com.samibi.stayawake.monitor.MotionSettings
 import com.samibi.stayawake.schedule.ScheduleWindow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -34,6 +35,19 @@ class SettingsStore private constructor(context: Context) {
             )
         }
 
+    val motion: Flow<MotionSettings> = store.data
+        .catch { emit(emptyPreferences()) }
+        .map { prefs ->
+            val d = MotionSettings.DEFAULT
+            MotionSettings(
+                stillnessSec = prefs[KEY_MOTION_STILL] ?: d.stillnessSec,
+                confirmSec = prefs[KEY_MOTION_CONFIRM] ?: d.confirmSec,
+                thresholdCenti = prefs[KEY_MOTION_THRESHOLD] ?: d.thresholdCenti,
+                windowSec = prefs[KEY_MOTION_WINDOW] ?: d.windowSec,
+                sampleHz = prefs[KEY_MOTION_HZ] ?: d.sampleHz,
+            ).coerced()
+        }
+
     val windows: Flow<List<ScheduleWindow>> = store.data
         .catch { emit(emptyPreferences()) }
         .map { prefs -> deserializeWindows(prefs[KEY_WINDOWS].orEmpty()) }
@@ -46,11 +60,24 @@ class SettingsStore private constructor(context: Context) {
         }
     }
 
+    suspend fun setMotion(m: MotionSettings) {
+        val c = m.coerced()
+        store.edit { prefs ->
+            prefs[KEY_MOTION_STILL] = c.stillnessSec
+            prefs[KEY_MOTION_CONFIRM] = c.confirmSec
+            prefs[KEY_MOTION_THRESHOLD] = c.thresholdCenti
+            prefs[KEY_MOTION_WINDOW] = c.windowSec
+            prefs[KEY_MOTION_HZ] = c.sampleHz
+        }
+    }
+
     suspend fun setWindows(windows: List<ScheduleWindow>) {
         store.edit { prefs -> prefs[KEY_WINDOWS] = serializeWindows(windows) }
     }
 
     suspend fun currentParams(): DetectorParams = params.first()
+
+    suspend fun currentMotion(): MotionSettings = motion.first()
 
     suspend fun currentWindows(): List<ScheduleWindow> = windows.first()
 
@@ -58,6 +85,11 @@ class SettingsStore private constructor(context: Context) {
         private val KEY_DROP = intPreferencesKey("hr_drop_percent")
         private val KEY_SUSTAIN = intPreferencesKey("hr_low_sustain_sec")
         private val KEY_STILL = intPreferencesKey("stillness_sec")
+        private val KEY_MOTION_STILL = intPreferencesKey("motion_still_sec")
+        private val KEY_MOTION_CONFIRM = intPreferencesKey("motion_confirm_sec")
+        private val KEY_MOTION_THRESHOLD = intPreferencesKey("motion_threshold_centi")
+        private val KEY_MOTION_WINDOW = intPreferencesKey("motion_window_sec")
+        private val KEY_MOTION_HZ = intPreferencesKey("motion_sample_hz")
         private val KEY_WINDOWS = stringPreferencesKey("windows")
 
         @Volatile

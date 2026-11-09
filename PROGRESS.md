@@ -14,3 +14,11 @@
 - VERIFIED: `./gradlew :app:testDebugUnitTest` 16 tests pass (8 new MotionOnlyDetectorTest); `assembleDebug` OK (JAVA_HOME must be java-17, not Android Studio jbr).
 - NOT VERIFIED: on-watch behavior, CPU/battery gain, motion threshold 0.08 tuned for a seated wrist. Home/Settings screens still show HR fields (now unused).
 - Tests were not seen failing first for the right reason (first run died on the unrelated compile error).
+
+## Branch motion-only: settings screens (2026-11-09)
+- Settings: "Warn after no movement" (10-300s, step 5) and "Alarm after warning" (5-60s, step 5). Old HR/preset controls removed (they did nothing on this branch).
+- New "Advanced settings" screen: movement threshold (0.02-0.50, step 0.01), measurement window (2-30s), samples per second (1-10), reset to defaults.
+- Values stored in DataStore (`MotionSettings`), read once at session start; changes apply on next session. Home "Still: x/Ns" now shows the real target.
+- VERIFIED: RED first (MotionSettingsTest failed: unresolved reference), then GREEN; full `testDebugUnitTest --rerun-tasks`: 22 tests, 0 failures (8 old detector, 8 new detector, 6 MotionSettings); `assembleDebug` OK.
+- NOT VERIFIED: UI on a watch (layout, stepper feel); DataStore persistence across restarts (no instrumented test); sensor behavior at non-default window/Hz.
+- Home screen still shows the HR lines (unused). Not touched.

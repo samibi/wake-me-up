@@ -18,7 +18,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
-import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
@@ -28,75 +27,44 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.samibi.stayawake.data.SettingsStore
-import com.samibi.stayawake.monitor.DetectorParams
-import com.samibi.stayawake.monitor.Sensitivity
+import com.samibi.stayawake.monitor.MotionSettings
 import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
     val context = LocalContext.current
     val store = remember(context) { SettingsStore.get(context) }
-    val current by store.params.collectAsStateWithLifecycle(initialValue = DetectorParams.DEFAULT)
+    val current by store.motion.collectAsStateWithLifecycle(initialValue = MotionSettings.DEFAULT)
     val scope = rememberCoroutineScope()
     val listState = rememberScalingLazyListState()
 
-    fun save(p: DetectorParams) {
-        scope.launch { store.setParams(p) }
+    fun save(m: MotionSettings) {
+        scope.launch { store.setMotion(m) }
     }
 
     Scaffold(timeText = { TimeText() }) {
         ScalingLazyColumn(modifier = Modifier.fillMaxWidth(), state = listState) {
-            item { Text(text = "Presets", style = MaterialTheme.typography.title3) }
-            items(Sensitivity.values().toList()) { s ->
-                val preset = DetectorParams.forSensitivity(s)
-                Chip(
-                    label = { Text(s.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                    secondaryLabel = {
-                        Text("-${preset.hrDropPercent}% / ${preset.hrLowSustainSec}s / ${preset.stillnessSec}s")
-                    },
-                    onClick = { save(preset) },
-                    colors = if (current == preset) {
-                        ChipDefaults.primaryChipColors()
-                    } else {
-                        ChipDefaults.secondaryChipColors()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item { Text(text = "Custom", style = MaterialTheme.typography.title3) }
             item {
                 ParamRow(
-                    title = "HR drop below baseline",
-                    value = "${current.hrDropPercent}%",
-                    onMinus = {
-                        save(current.copy(hrDropPercent = (current.hrDropPercent - 1).coerceAtLeast(DetectorParams.DROP_MIN)))
-                    },
-                    onPlus = {
-                        save(current.copy(hrDropPercent = (current.hrDropPercent + 1).coerceAtMost(DetectorParams.DROP_MAX)))
-                    },
-                )
-            }
-            item {
-                ParamRow(
-                    title = "HR must stay low for",
-                    value = "${current.hrLowSustainSec}s",
-                    onMinus = {
-                        save(current.copy(hrLowSustainSec = (current.hrLowSustainSec - 5).coerceAtLeast(DetectorParams.SUSTAIN_MIN)))
-                    },
-                    onPlus = {
-                        save(current.copy(hrLowSustainSec = (current.hrLowSustainSec + 5).coerceAtMost(DetectorParams.SUSTAIN_MAX)))
-                    },
-                )
-            }
-            item {
-                ParamRow(
-                    title = "Wrist still for",
+                    title = "Warn after no movement",
                     value = "${current.stillnessSec}s",
                     onMinus = {
-                        save(current.copy(stillnessSec = (current.stillnessSec - 5).coerceAtLeast(DetectorParams.STILL_MIN)))
+                        save(current.copy(stillnessSec = (current.stillnessSec - 5).coerceAtLeast(MotionSettings.STILL_MIN)))
                     },
                     onPlus = {
-                        save(current.copy(stillnessSec = (current.stillnessSec + 5).coerceAtMost(DetectorParams.STILL_MAX)))
+                        save(current.copy(stillnessSec = (current.stillnessSec + 5).coerceAtMost(MotionSettings.STILL_MAX)))
+                    },
+                )
+            }
+            item {
+                ParamRow(
+                    title = "Alarm after warning",
+                    value = "${current.confirmSec}s",
+                    onMinus = {
+                        save(current.copy(confirmSec = (current.confirmSec - 5).coerceAtLeast(MotionSettings.CONFIRM_MIN)))
+                    },
+                    onPlus = {
+                        save(current.copy(confirmSec = (current.confirmSec + 5).coerceAtMost(MotionSettings.CONFIRM_MAX)))
                     },
                 )
             }
@@ -104,6 +72,14 @@ fun SettingsScreen(navController: NavHostController) {
                 Text(
                     text = "Applies on next session start",
                     style = MaterialTheme.typography.caption3,
+                )
+            }
+            item {
+                Chip(
+                    label = { Text("Advanced settings") },
+                    onClick = { navController.navigate("advanced") },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             item {
@@ -141,7 +117,7 @@ fun SettingsScreen(navController: NavHostController) {
 }
 
 @Composable
-private fun ParamRow(
+internal fun ParamRow(
     title: String,
     value: String,
     onMinus: () -> Unit,
