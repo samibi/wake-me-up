@@ -22,3 +22,4 @@
 - VERIFIED: RED first (MotionSettingsTest failed: unresolved reference), then GREEN; full `testDebugUnitTest --rerun-tasks`: 22 tests, 0 failures (8 old detector, 8 new detector, 6 MotionSettings); `assembleDebug` OK.
 - NOT VERIFIED: UI on a watch (layout, stepper feel); DataStore persistence across restarts (no instrumented test); sensor behavior at non-default window/Hz.
 - Home screen still shows the HR lines (unused). Not touched.
+- Added one-line hint under each setting (5 settings). VERIFIED: tests pass, APK builds, hint text found in dex. NOT VERIFIED: how the text fits the watch screen.

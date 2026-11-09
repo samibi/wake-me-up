@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
@@ -47,6 +48,7 @@ fun SettingsScreen(navController: NavHostController) {
             item {
                 ParamRow(
                     title = "Warn after no movement",
+                    hint = "Seconds without wrist movement before a gentle double buzz.",
                     value = "${current.stillnessSec}s",
                     onMinus = {
                         save(current.copy(stillnessSec = (current.stillnessSec - 5).coerceAtLeast(MotionSettings.STILL_MIN)))
@@ -59,6 +61,7 @@ fun SettingsScreen(navController: NavHostController) {
             item {
                 ParamRow(
                     title = "Alarm after warning",
+                    hint = "Seconds more without movement before the alarm sounds.",
                     value = "${current.confirmSec}s",
                     onMinus = {
                         save(current.copy(confirmSec = (current.confirmSec - 5).coerceAtLeast(MotionSettings.CONFIRM_MIN)))
@@ -122,6 +125,7 @@ internal fun ParamRow(
     value: String,
     onMinus: () -> Unit,
     onPlus: () -> Unit,
+    hint: String? = null,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -135,6 +139,13 @@ internal fun ParamRow(
             CompactChip(label = { Text("−") }, onClick = onMinus)
             Text(text = value, style = MaterialTheme.typography.title3)
             CompactChip(label = { Text("+") }, onClick = onPlus)
+        }
+        if (hint != null) {
+            Text(
+                text = hint,
+                style = MaterialTheme.typography.caption3,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
